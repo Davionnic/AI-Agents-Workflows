@@ -1,14 +1,20 @@
 import json
-import os
 import time
 
 import requests
-from dotenv import load_dotenv
-
-load_dotenv()
 
 BASE_URL = "https://api.brightdata.com/datasets/v3"
 CHANNEL_DATASET_ID = "gd_lk56epmy2i5g7lzu0k"
+
+DEFAULT_TIMEOUT = 120
+SNAPSHOT_TIMEOUT = 600
+RETRYABLE_STATUS = {502, 503, 504}
+
+
+class BrightDataError(Exception):
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def _headers(api_key: str) -> dict:
@@ -18,20 +24,56 @@ def _headers(api_key: str) -> dict:
     }
 
 
-def _post(api_key: str, url: str, payload: list | dict) -> dict | None:
-    response = requests.post(url, headers=_headers(api_key), json=payload, timeout=60)
-    if not response.ok:
-        print(f"Error: {response.status_code} {response.text}")
-        return None
-    return response.json()
+def _request(method: str, url: str, api_key: str, timeout: int, retries: int, **kwargs):
+    last_error = None
+    last_status = None
+    last_body = ""
+
+    for attempt in range(retries):
+        try:
+            response = requests.request(
+                method,
+                url,
+                headers=_headers(api_key),
+                timeout=(30, timeout),
+                **kwargs,
+            )
+            last_status = response.status_code
+            last_body = response.text[:500]
+
+            if response.status_code in RETRYABLE_STATUS and attempt < retries - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+
+            if not response.ok:
+                raise BrightDataError(
+                    f"Bright Data API error ({response.status_code}): {response.text[:300]}",
+                    response.status_code,
+                )
+
+            content_type = response.headers.get("content-type", "")
+            if content_type.startswith("application/json"):
+                return response.json()
+            return response.text
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < retries - 1:
+                time.sleep(5 * (attempt + 1))
+
+    if last_error:
+        raise last_error
+    raise BrightDataError(
+        f"Bright Data API error ({last_status}): {last_body or 'Unknown error'}",
+        last_status,
+    )
 
 
-def _get(api_key: str, url: str) -> dict | str | None:
-    response = requests.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=60)
-    if not response.ok:
-        print(f"Error: {response.status_code} {response.text}")
-        return None
-    return response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text
+def _post(api_key: str, url: str, payload: list | dict, retries: int = 5) -> dict:
+    return _request("POST", url, api_key, DEFAULT_TIMEOUT, retries, json=payload)
+
+
+def _get(api_key: str, url: str, timeout: int = DEFAULT_TIMEOUT, retries: int = 3):
+    return _request("GET", url, api_key, timeout, retries)
 
 
 def trigger_scraping_niche(
@@ -42,7 +84,7 @@ def trigger_scraping_niche(
     end_date: str,
     country: str,
     endpoint: str,
-) -> dict | None:
+) -> dict:
     payload = [{
         "keyword": keyword,
         "num_of_posts": num_of_posts,
@@ -61,7 +103,7 @@ def trigger_scraping_channels(
     end_date: str,
     order_by: str,
     country: str,
-) -> dict | None:
+) -> dict:
     endpoint = (
         f"{BASE_URL}/trigger"
         f"?dataset_id={CHANNEL_DATASET_ID}&include_errors=true&type=discover_new&discover_by=url"
@@ -80,12 +122,17 @@ def trigger_scraping_channels(
     return _post(api_key, endpoint, payload)
 
 
-def get_progress(api_key: str, snapshot_id: str) -> dict | None:
-    return _get(api_key, f"{BASE_URL}/progress/{snapshot_id}")
+def get_progress(api_key: str, snapshot_id: str) -> dict:
+    return _get(api_key, f"{BASE_URL}/progress/{snapshot_id}", retries=5)
 
 
 def get_output(api_key: str, snapshot_id: str, format: str = "json") -> list:
-    data = _get(api_key, f"{BASE_URL}/snapshot/{snapshot_id}?format={format}")
+    data = _get(
+        api_key,
+        f"{BASE_URL}/snapshot/{snapshot_id}?format={format}",
+        timeout=SNAPSHOT_TIMEOUT,
+        retries=5,
+    )
     if not data:
         return []
     if isinstance(data, list):
@@ -107,12 +154,22 @@ def normalize_videos(scraped: list) -> list:
     return scraped
 
 
-def wait_for_snapshot(api_key: str, snapshot_id: str, poll_seconds: int = 10, timeout_seconds: int = 600) -> dict:
+def wait_for_snapshot(
+    api_key: str,
+    snapshot_id: str,
+    poll_seconds: int = 15,
+    timeout_seconds: int = 1800,
+) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        status = get_progress(api_key, snapshot_id)
+        try:
+            status = get_progress(api_key, snapshot_id)
+        except (requests.RequestException, BrightDataError):
+            time.sleep(poll_seconds)
+            continue
         if not status:
-            raise RuntimeError("Failed to check scraping progress.")
+            time.sleep(poll_seconds)
+            continue
         if status.get("status") in {"ready", "failed"}:
             return status
         time.sleep(poll_seconds)

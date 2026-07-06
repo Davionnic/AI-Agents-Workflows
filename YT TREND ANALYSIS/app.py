@@ -1,9 +1,11 @@
 import base64
 import gc
 import os
-import time
 from pathlib import Path
 
+import importlib
+
+import requests
 import streamlit as st
 import yaml
 from crewai import Agent, Crew, LLM, Process, Task
@@ -11,32 +13,76 @@ from crewai_tools import FileReadTool
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from brightdata_scrapper import get_output, get_progress, normalize_videos, trigger_scraping_channels
+import brightdata_scrapper
+importlib.reload(brightdata_scrapper)
+from brightdata_scrapper import (
+    BrightDataError,
+    get_output,
+    normalize_videos,
+    trigger_scraping_channels,
+    wait_for_snapshot,
+)
 
 load_dotenv()
 
 TRANSCRIPTS_DIR = Path("transcripts")
 docs_tool = FileReadTool()
 bright_data_api_key = os.getenv("BRIGHT_DATA_API_KEY")
+PLACEHOLDER_KEYS = {"your_openai_api_key", "your_bright_data_api_key", "changeme"}
+
+
+def is_valid_api_key(value: str | None) -> bool:
+    if not value or not value.strip():
+        return False
+    return value.strip().lower() not in PLACEHOLDER_KEYS and not value.strip().lower().startswith("your_")
+
+
+def get_openai_api_key() -> str | None:
+    key = os.getenv("OPENAI_API_KEY")
+    return key if is_valid_api_key(key) else None
+
+
+def get_llm_label() -> str:
+    if get_openai_api_key():
+        return "OpenAI gpt-4o"
+    return "Ollama llama3.2 (local)"
 
 
 @st.cache_resource
 def load_llm():
-    if os.getenv("OPENAI_API_KEY"):
-        return LLM(model="gpt-4o", api_key=os.getenv("OPENAI_API_KEY"))
+    openai_key = get_openai_api_key()
+    if openai_key:
+        return LLM(model="gpt-4o", api_key=openai_key)
     return LLM(model="ollama/llama3.2", base_url="http://localhost:11434")
 
 
-def create_agents_and_tasks():
+def load_transcripts(file_paths: list[str], max_chars: int = 20000) -> str:
+    parts = []
+    for path in file_paths:
+        content = Path(path).read_text(encoding="utf-8")
+        parts.append(f"--- {Path(path).name} ---\n{content}")
+    combined = "\n\n".join(parts)
+    if len(combined) > max_chars:
+        combined = combined[:max_chars] + "\n\n[Transcript truncated for context limit]"
+    return combined
+
+
+def create_agents_and_tasks(transcripts: str):
     with open("config.yaml", encoding="utf-8") as file:
         config = yaml.safe_load(file)
+
+    use_openai = get_openai_api_key() is not None
+    analysis_description = (
+        f"{config['tasks'][0]['description'].strip()}\n\n"
+        f"--- TRANSCRIPTS ---\n\n{transcripts}"
+    )
 
     analysis_agent = Agent(
         role=config["agents"][0]["role"],
         goal=config["agents"][0]["goal"],
         backstory=config["agents"][0]["backstory"],
         verbose=True,
-        tools=[docs_tool],
+        tools=[docs_tool] if use_openai else [],
         llm=load_llm(),
     )
 
@@ -49,7 +95,7 @@ def create_agents_and_tasks():
     )
 
     analysis_task = Task(
-        description=config["tasks"][0]["description"],
+        description=analysis_description,
         expected_output=config["tasks"][0]["expected_output"],
         agent=analysis_agent,
     )
@@ -58,6 +104,7 @@ def create_agents_and_tasks():
         description=config["tasks"][1]["description"],
         expected_output=config["tasks"][1]["expected_output"],
         agent=response_synthesizer_agent,
+        context=[analysis_task],
     )
 
     return Crew(
@@ -84,10 +131,47 @@ def save_transcripts(videos: list) -> list[str]:
     return files
 
 
-def start_analysis():
-    if not bright_data_api_key:
-        st.error("Set BRIGHT_DATA_API_KEY in your .env file.")
+def run_crew_analysis(openai_key: str | None):
+    transcript_files = sorted(str(p) for p in TRANSCRIPTS_DIR.glob("*.txt"))
+    if not transcript_files:
+        st.error("No transcript files found in the transcripts/ folder.")
         return
+
+    st.session_state.all_files = transcript_files
+    with st.spinner("The agent is analyzing the videos... This may take a moment."):
+        try:
+            max_chars = 100000 if openai_key else 20000
+            transcripts = load_transcripts(transcript_files, max_chars=max_chars)
+            st.session_state.crew = create_agents_and_tasks(transcripts)
+            st.session_state.response = st.session_state.crew.kickoff()
+            if "can't fulfill" in str(st.session_state.response.raw).lower():
+                st.warning("The model returned a refusal. Try again or switch to OpenAI for better results.")
+        except Exception as exc:
+            error_name = type(exc).__name__
+            if "Authentication" in error_name or "401" in str(exc):
+                st.error(
+                    "LLM authentication failed. Add a real `OPENAI_API_KEY` to `.env`, "
+                    "or remove it and run `ollama pull llama3.2` for local analysis."
+                )
+            else:
+                st.error(f"Analysis failed: {exc}")
+
+
+def analyze_existing_transcripts():
+    openai_key = get_openai_api_key()
+    if not openai_key:
+        st.info(f"Using **{get_llm_label()}**. Ensure Ollama is running, or set a real `OPENAI_API_KEY` in `.env`.")
+    run_crew_analysis(openai_key)
+
+
+def start_analysis():
+    if not is_valid_api_key(bright_data_api_key):
+        st.error("Set a valid BRIGHT_DATA_API_KEY in your .env file.")
+        return
+
+    openai_key = get_openai_api_key()
+    if not openai_key:
+        st.info(f"Using **{get_llm_label()}**. Ensure Ollama is running, or set a real `OPENAI_API_KEY` in `.env`.")
 
     channels = [url.strip() for url in st.session_state.youtube_channels if url.strip()]
     if not channels:
@@ -98,35 +182,56 @@ def start_analysis():
 
     with st.spinner("Scraping videos... This may take a moment."):
         status_container.info("Extracting videos from the channels...")
-        snapshot = trigger_scraping_channels(
-            bright_data_api_key,
-            channels,
-            10,
-            st.session_state.start_date,
-            st.session_state.end_date,
-            "Latest",
-            "",
-        )
+        try:
+            snapshot = trigger_scraping_channels(
+                bright_data_api_key,
+                channels,
+                10,
+                st.session_state.start_date,
+                st.session_state.end_date,
+                "Latest",
+                "",
+            )
+        except BrightDataError as exc:
+            if exc.status_code in {502, 503, 504}:
+                status_container.error(
+                    "Bright Data returned a temporary server error (502/503). "
+                    "Wait a minute and try again, or use **Analyze Saved Transcripts** to skip scraping."
+                )
+            else:
+                status_container.error(str(exc))
+            return
+        except requests.RequestException:
+            status_container.error("Could not reach Bright Data. Check your connection and try again.")
+            return
         if not snapshot or "snapshot_id" not in snapshot:
-            status_container.error("Failed to start Bright Data scraping job.")
+            status_container.error("Failed to start Bright Data scraping job. Try again in a minute.")
             return
 
         snapshot_id = snapshot["snapshot_id"]
-        while True:
-            status = get_progress(bright_data_api_key, snapshot_id)
-            if not status:
-                status_container.error("Failed to check scraping progress.")
-                return
-            status_container.info(f"Current status: {status.get('status', 'unknown')}")
-            if status.get("status") == "ready":
-                break
-            if status.get("status") == "failed":
-                status_container.error(f"Scraping failed: {status}")
-                return
-            time.sleep(10)
+        status_container.info("Waiting for Bright Data to finish scraping (may take several minutes)...")
+        try:
+            status = wait_for_snapshot(bright_data_api_key, snapshot_id)
+        except TimeoutError:
+            status_container.error("Scraping timed out. Try a shorter date range or fewer channels.")
+            return
+        except (requests.RequestException, BrightDataError):
+            status_container.error("Lost connection to Bright Data while waiting. Please try again.")
+            return
+        if status.get("status") == "failed":
+            status_container.error(f"Scraping failed: {status}")
+            return
 
         status_container.success("Scraping completed successfully!")
-        scraped = get_output(bright_data_api_key, snapshot_id, format="json")
+        status_container.info("Downloading scraped results (this can take a few minutes)...")
+        try:
+            scraped = get_output(bright_data_api_key, snapshot_id, format="json")
+        except (requests.RequestException, BrightDataError):
+            status_container.error(
+                "Bright Data timed out while downloading results. "
+                "Try again with a shorter date range or fewer channels."
+            )
+            return
         if not scraped:
             status_container.error("No videos returned from Bright Data.")
             return
@@ -149,11 +254,7 @@ def start_analysis():
         st.session_state.all_files = save_transcripts(videos)
         status_container.success("Scraping complete! Analyzing videos and reporting trends...")
 
-    with st.spinner("The agent is analyzing the videos... This may take a moment."):
-        st.session_state.crew = create_agents_and_tasks()
-        st.session_state.response = st.session_state.crew.kickoff(
-            inputs={"file_paths": ", ".join(st.session_state.all_files)}
-        )
+    run_crew_analysis(openai_key)
 
 
 def reset_chat():
@@ -217,7 +318,9 @@ with st.sidebar:
         st.session_state.end_date = end_date.strftime("%Y-%m-%d")
 
     st.divider()
+    st.caption(f"LLM: {get_llm_label()}")
     st.button("Start Analysis 🚀", type="primary", on_click=start_analysis)
+    st.button("Analyze Saved Transcripts 📄", on_click=analyze_existing_transcripts)
     st.button("Clear Results", on_click=reset_chat)
 
 if st.session_state.response:
