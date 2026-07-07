@@ -1,6 +1,8 @@
 # YouTube Trend Analysis
 
-Streamlit app that scrapes YouTube channel transcripts with Bright Data and runs a two-agent CrewAI pipeline to surface topics, trends, sentiment, and actionable insights.
+Streamlit app that scrapes YouTube channel transcripts with [Bright Data](https://brightdata.com/) and runs a two-agent CrewAI pipeline to surface topics, trends, sentiment, and actionable insights.
+
+Part of the [AI Agents & Workflows](../) monorepo.
 
 ## Setup
 
@@ -46,10 +48,16 @@ Agent roles and tasks are defined in `config.yaml`.
 ## Project structure
 
 ```
-app.py                  # Streamlit UI and CrewAI orchestration
-brightdata_scrapper.py  # Bright Data API client
-config.yaml             # Agent and task definitions
-requirements.txt
-.env.example
-transcripts/            # Generated transcript files (gitignored)
+YT TREND ANALYSIS/
+├── app.py                  # Streamlit UI and CrewAI orchestration
+├── brightdata_scrapper.py  # Bright Data API client
+├── config.yaml             # Agent and task definitions
+├── requirements.txt
+├── .env.example
+├── assets/                 # UI branding images
+└── transcripts/            # Generated transcript files (gitignored)
 ```
+
+## License
+
+MIT

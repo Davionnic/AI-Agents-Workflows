@@ -8,6 +8,7 @@ Each project lives in its own top-level directory with its own dependencies, con
 
 | Project | Description |
 |---------|-------------|
+| [agentic-rag](./AGENTIC%20RAG/) | Agentic RAG with document search (Qdrant) and web fallback (Firecrawl / Serper), with a Streamlit chat UI |
 | [yt-trend-analysis](./YT%20TREND%20ANALYSIS/) | Scrape YouTube channel transcripts via Bright Data and analyze trends with a CrewAI agent crew |
 
 ## Getting started
