@@ -49,10 +49,10 @@ pip install -r requirements.txt
 cp .env.example .env   # then fill in your keys
 ```
 
-Edit `.env` with your keys:
+## Environment variables
 
 | Variable | Description |
-|---|---|
+|----------|-------------|
 | `LLM_PROVIDER` | `openai` or `ollama` |
 | `OPENAI_API_KEY` | Required when using OpenAI |
 | `OPENAI_MODEL` | e.g. `gpt-4o-mini` |
@@ -75,7 +75,7 @@ streamlit run app.py
 python -m agentic_rag.main "What is DSPy?" knowledge/sample.pdf
 ```
 
-## Project Structure
+## Project structure
 
 ```
 AGENTIC RAG/
@@ -92,7 +92,7 @@ AGENTIC RAG/
         └── web_search.py           # Firecrawl / Serper wrapper
 ```
 
-## How It Works
+## How it works
 
 1. Upload a PDF in the sidebar (optional).
 2. The document is parsed, semantically chunked, and indexed in an in-memory Qdrant collection.
@@ -100,7 +100,7 @@ AGENTIC RAG/
 4. If the document does not contain enough context, it uses **web search**.
 5. The **synthesizer agent** produces a concise final answer.
 
-## Improvements Over the Reference
+## Improvements over the reference
 
 - Single unified app instead of three duplicate entry points
 - Fixed PDF temp-file bug (uploads persist under `data/uploads/`)

@@ -4,6 +4,13 @@ Streamlit app that scrapes YouTube channel transcripts with [Bright Data](https:
 
 Part of the [AI Agents & Workflows](../) monorepo.
 
+## Features
+
+- **Bright Data scraping**: pull videos and formatted transcripts from YouTube channel URLs
+- **Two-agent crew**: analysis agent + response synthesizer
+- **Flexible LLM**: OpenAI GPT-4o when a key is set, otherwise local Ollama (`llama3.2`)
+- **Streamlit UI**: enter channels, run the pipeline, and review the report in-app
+
 ## Setup
 
 ```bash

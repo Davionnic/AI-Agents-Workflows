@@ -1,6 +1,6 @@
 # AI Agents & Workflows
 
-Monorepo for AI agent projects and automated workflows built with [CrewAI](https://www.crewai.com/), Streamlit, and related tooling.
+Monorepo for AI agent projects and automated workflows built with [CrewAI](https://www.crewai.com/), [AG2](https://docs.ag2.ai/) (AutoGen), Streamlit, and related tooling.
 
 Each project lives in its own top-level directory with its own dependencies, config, and README.
 
@@ -9,6 +9,7 @@ Each project lives in its own top-level directory with its own dependencies, con
 | Project | Description |
 |---------|-------------|
 | [agentic-rag](./AGENTIC%20RAG/) | Agentic RAG with document search (Qdrant) and web fallback (Firecrawl / Serper), with a Streamlit chat UI |
+| [autogen-stock-analyst](./AUTOGEN%20STOCK%20ANALYST/) | Multi-agent stock analysis with AG2 + Groq (free tier), yfinance data, and local code execution |
 | [yt-trend-analysis](./YT%20TREND%20ANALYSIS/) | Scrape YouTube channel transcripts via Bright Data and analyze trends with a CrewAI agent crew |
 
 ## Getting started
@@ -35,4 +36,4 @@ Each project lives in its own top-level directory with its own dependencies, con
 - Python 3.11+
 - Git
 
-Individual projects may require additional API keys or local services (e.g. Ollama). See each project's README.
+Individual projects may require additional API keys or local services (e.g. Ollama, Groq). See each project's README.
