@@ -1,0 +1,6 @@
+crewai[tools]>=0.86.0,<1.0.0
+streamlit>=1.32.0
+pypdf>=4.0.0
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+duckduckgo-search>=6.0.0

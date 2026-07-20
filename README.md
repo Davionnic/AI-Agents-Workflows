@@ -9,6 +9,7 @@ Each project lives in its own top-level directory with its own dependencies, con
 | Project | Description |
 |---------|-------------|
 | [agentic-rag](./AGENTIC%20RAG/) | Agentic RAG with document search (Qdrant) and web fallback (Firecrawl / Serper), with a Streamlit chat UI |
+| [agenticrag-deepseek](./AGENTICRAG_DEEPSEEK/) | Local Agentic RAG with DeepSeek R1 (Ollama), Chroma document search, and DuckDuckGo web fallback |
 | [autogen-stock-analyst](./AUTOGEN%20STOCK%20ANALYST/) | Multi-agent stock analysis with AG2 + Groq (free tier), yfinance data, and local code execution |
 | [yt-trend-analysis](./YT%20TREND%20ANALYSIS/) | Scrape YouTube channel transcripts via Bright Data and analyze trends with a CrewAI agent crew |
 
