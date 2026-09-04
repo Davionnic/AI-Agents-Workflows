@@ -12,6 +12,7 @@ Each project lives in its own top-level directory with its own dependencies, con
 | [agenticrag-deepseek](./AGENTICRAG_DEEPSEEK/) | Local Agentic RAG with DeepSeek R1 (Ollama), Chroma document search, and DuckDuckGo web fallback |
 | [autogen-stock-analyst](./AUTOGEN%20STOCK%20ANALYST/) | Multi-agent stock analysis with AG2 + Groq (free tier), yfinance data, and local code execution |
 | [yt-trend-analysis](./YT%20TREND%20ANALYSIS/) | Scrape YouTube channel transcripts via Bright Data and analyze trends with a CrewAI agent crew |
+| [book-writer-flow](./BOOK%20WRITER%20FLOW/) | Research a topic and write a complete Markdown book with a concurrent CrewAI flow |
 
 ## Getting started
 
